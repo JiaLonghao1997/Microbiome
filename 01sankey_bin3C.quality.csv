@@ -1,0 +1,14 @@
+reference,mNGS_metaSPAdes,Nanopore_metaflye,Nanopore_OPERA-MS,PacBio_metaflye,PacBio_OPERA-MS
+complete,complete,medium-quality,complete,low_miss,complete
+high-quality,high-quality,medium-quality,high-quality,medium-quality,high-quality
+high-quality,high-quality,high-quality,high-quality,low_miss,high-quality
+complete,complete,high-quality,high-quality,high-quality,high-quality
+high-quality,high-quality,high-quality,high-quality,high-quality,high-quality
+high-quality,complete,low_miss,high-quality,low_miss,high-quality
+high-quality,high-quality,low_miss,high-quality,low_miss,high-quality
+high-quality,complete,high-quality,high-quality,high-quality,high-quality
+high-quality,high-quality,high-quality,high-quality,high-quality,high-quality
+high-quality,complete,low_miss,complete,low_miss,complete
+high-quality,high-quality,high-quality,high-quality,high-quality,high-quality
+high-quality,complete,low_miss,high-quality,high-quality,high-quality
+high-quality,low_miss,low_miss,medium-quality,low_miss,medium-quality
