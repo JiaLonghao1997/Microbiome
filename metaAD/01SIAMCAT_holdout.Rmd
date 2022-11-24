@@ -1,0 +1,247 @@
+---
+title: "01SIAMCAT_holdout"
+author: "jialh"
+date: "2022/11/24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE)
+knitr::opts_knit$set(root.dir = "F:\\Zhaolab2020\\gut-brain-axis\\metaAD\\01crc_meta\\meta-analysis-microbiome\\AD_species")
+```
+
+## 1.加载所需的包
+
+```{r cars}
+library("SIAMCAT")
+
+#workdir="F:\\Zhaolab2020\\gut-brain-axis\\metaAD\\01crc_meta\\meta-analysis-microbiome\\AD_species"
+#setwd(workdir)
+```
+
+## 2.加载数据为siamcat对象。
+
+```{r pressure, echo=FALSE}
+####<------------------------------>####
+load_siamcat <- function(study, group){
+    data = read.csv(paste0(study, ".csv"), header=1, row.names=1, stringsAsFactors = FALSE)
+    #print(data[1:5, 1:5])
+    
+    data_group = data[data$group %in% c("NC", group), ]
+    data_group_meta = data_group[, c('gender', 'age', 'group')]
+    #print(data_group_meta)
+    data_group_feat = data_group[, -c(1:3)]
+    rowSums(data_group_feat)
+    data_group_feat = data_group_feat / 100
+    data_group_feat = t(data_group_feat)
+    #print(data_group_feat[1:5, 1:5])
+    
+    data_group_label <- create.label(meta=data_group_meta,
+                                 label='group', case=group)
+    
+    #?normalize.features
+    sc.obj <- siamcat(feat=data_group_feat,
+                      label=data_group_label,
+                      meta=data_group_meta)
+    return(list(data_group_meta, data_group_feat, sc.obj))
+}
+
+
+
+```
+```{r}
+#setwd(workdir)
+CHN_AD_data <- load_siamcat("CHN", "AD")
+CHN_AD_meta <- CHN_AD_data[[1]]
+CHN_AD_feat <- CHN_AD_data[[2]]
+siamcat.CHN_AD <- CHN_AD_data[[3]]
+```
+```{r}
+#setwd(workdir)
+JPN_AD_data <- load_siamcat("JPN", "AD")
+JPN_AD_meta <- JPN_AD_data[[1]]
+JPN_AD_feat <- JPN_AD_data[[2]]
+siamcat.JPN_AD <- JPN_AD_data[[3]]
+```
+
+## 3. 基于CHN数据集构建模型
+特征筛选：
+```{r}
+siamcat.CHN_AD <- filter.features(
+    siamcat.CHN_AD,
+    filter.method = 'abundance',
+    cutoff = 0.001,
+    rm.unmapped = TRUE,
+    verbose=2
+)
+```
+特征归一化：
+```{r}
+siamcat.CHN_AD <- normalize.features(
+    siamcat.CHN_AD,
+    norm.method = "log.std",
+    norm.param = list(log.n0 = 1e-06, sd.min.q = 0.1),
+    verbose = 2
+)
+```
+模型训练与评估：
+```{r}
+siamcat.CHN_AD <-  create.data.split(
+    siamcat.CHN_AD,
+    num.folds = 5,
+    num.resample = 2
+)
+
+siamcat.CHN_AD <- train.model(
+    siamcat.CHN_AD,
+    method = "lasso"
+)
+
+
+##
+siamcat.CHN_AD <- make.predictions(siamcat.CHN_AD)
+
+siamcat.CHN_AD <-  evaluate.predictions(siamcat.CHN_AD)
+```
+## 4.在外部数据集上进行验证
+外部数据集的归一化：
+```{r}
+siamcat.JPN_AD <- normalize.features(siamcat.JPN_AD,
+    norm.param=norm_params(siamcat.CHN_AD),
+    feature.type='original',
+    verbose = 2)
+```
+> 可能的错误：Error in normalize.features(siamcat.JPN_AD, norm.param = norm_params(siamcat.CHN_AD), : 不是所有的all(norm.param$retained.feat %in% row.names(feat))都是TRUE
+>解决办法：
+```
+merge_metaphlan_tables.py /home1/jialh/brain/metaAD/03_metaphlan_correct/profile/*.txt /home1/jialh/brain/Japan/metaphlan3/results/*.txt > CHN_JPN_merge_taxon.txt
+grep -E "ID|s__|clade" /home1/jialh/brain/Japan/CHN_JPN_merge_taxon.txt | sed 's/^.*s__//g' | cut -f2 --complement | sed -e 's/clade_name/species/g' > CHN_JPN.merge_table_species.txt
+python /home1/jialh/brain/Japan/merge_name.py 
+```
+
+外部数据集上的预测：
+```{r}
+siamcat.JPN_AD <- make.predictions(
+    siamcat = siamcat.CHN_AD,
+    siamcat.holdout = siamcat.JPN_AD,
+    normalize.holdout = FALSE)
+```
+再次评估预测结果：
+```{r}
+siamcat.JPN_AD <- evaluate.predictions(siamcat.JPN_AD)
+```
+## 5. 模型评估
+```{r}
+model.evaluation.plot('CHN_AD'=siamcat.CHN_AD,
+    'JPN_AD'=siamcat.JPN_AD,
+    colours=c('dimgrey', 'orange'))
+```
+## 6.特征选择
+导入数据集
+```{r}
+#install.packages("cli", dependencies = TRUE)
+#如果遇到安装错误，直接删除library目录下的cli目录。
+```
+
+```{r}
+library("tidyverse")
+library("SIAMCAT")
+setwd(workdir)
+CHN_AD_data <- load_siamcat("CHN", "AD")
+CHN_AD_meta <- CHN_AD_data[[1]]
+CHN_AD_feat <- CHN_AD_data[[2]]
+siamcat.CHN_AD <- CHN_AD_data[[3]]
+
+
+JPN_AD_data <- load_siamcat("JPN", "AD")
+JPN_AD_meta <- JPN_AD_data[[1]]
+JPN_AD_feat <- JPN_AD_data[[2]]
+siamcat.JPN_AD <- JPN_AD_data[[3]]
+```
+设置不同的特征阈值，准备tibble用于保存结果：
+```{r}
+fs.cutoff <- c(10, 20, 50, 100, 250)
+
+auroc.all <- tibble(cutoff=character(0), type=character(0), 
+                    study.test=character(0), AUC=double(0))
+```
+### 6.1 训练没有特征选择的模型
+```{r}
+siamcat.CHN_AD <- filter.features(siamcat.CHN_AD, filter.method = 'prevalence',
+                            cutoff = 0.01)
+siamcat.CHN_AD <- normalize.features(siamcat.CHN_AD, norm.method = 'log.std',
+                                norm.param=list(log.n0=1e-05, sd.min.q=0))
+siamcat.CHN_AD <- create.data.split(siamcat.CHN_AD,
+                                num.folds = 10, num.resample = 10)
+siamcat.CHN_AD <- train.model(siamcat.CHN_AD, method='lasso')
+siamcat.CHN_AD <- make.predictions(siamcat.CHN_AD)
+siamcat.CHN_AD <- evaluate.predictions(siamcat.CHN_AD)
+
+auroc.all <- auroc.all %>% 
+    add_row(cutoff='full', type='correct', 
+            study.test='CNH_AD', 
+            AUC=as.numeric(siamcat.CHN_AD@eval_data$auroc)) %>% 
+    add_row(cutoff='full', type='incorrect', study.test='CHN_AD', 
+            AUC=as.numeric(siamcat.CHN_AD@eval_data$auroc)) 
+```
+将CHN上训练的模型用于JPN,记录其在JPN数据集上的泛化能力：
+```{r}
+siamcat.JPN_AD <- make.predictions(siamcat.CHN_AD, siamcat.JPN_AD)
+siamcat.JPN_AD <- evaluate.predictions(siamcat.JPN_AD)
+auroc.all <- auroc.all %>% 
+    add_row(cutoff='full', type='correct', 
+            study.test='JPN_AD', 
+            AUC=as.numeric(siamcat.JPN_AD@eval_data$auroc)) %>% 
+    add_row(cutoff='full', type='incorrect', 
+            study.test='JPN_AD', 
+            AUC=as.numeric(siamcat.JPN_AD@eval_data$auroc)) 
+```
+### 6.2 Incorrect Procedure: Train with Supervised Feature Selection
+首先用整个数据集的假设检验找到差异丰度的特征，然后选择最相关的特征：
+```{r}
+siamcat.CHN_AD <- check.associations(siamcat.CHN_AD, detect.lim = 1e-05,
+                                fn.plot = 'assoc_plot.pdf')
+mat.assoc <- associations(siamcat.CHN_AD)
+mat.assoc$species <- rownames(mat.assoc)
+# sort by p-value
+mat.assoc <- mat.assoc %>% as_tibble() %>% arrange(p.val)
+```
+基于`check.associations`函数中P value, 我们选择`X`个特征来训练模型：
+```{r}
+for (x in fs.cutoff){
+    #x = fs.cutoff[1]
+    print(paste0("select ",x, " features based on p-value ranking"))
+    # select x number of features based on p-value ranking
+    feat.train.red <- CHN_AD_feat[mat.assoc %>%
+                                slice(seq_len(x)) %>%
+                                pull(species),]
+    siamcat.CHN_AD.fs <- siamcat(feat=feat.train.red, meta=CHN_AD_meta,
+                            label='group', case='AD')
+    # normalize the features without filtering
+    siamcat.CHN_AD.fs <- normalize.features(siamcat.CHN_AD.fs, norm.method = 'log.std',
+        norm.param=list(log.n0=1e-05,sd.min.q=0),feature.type = 'original')
+    # take the same cross validation split as before
+    data_split(siamcat.CHN_AD.fs) <- data_split(siamcat.CHN_AD)
+    # train
+    siamcat.CHN_AD.fs <- train.model(siamcat.CHN_AD.fs, method = 'lasso')
+    # make predictions
+    siamcat.CHN_AD.fs <- make.predictions(siamcat.CHN_AD.fs)
+    # evaluate predictions and record the result
+    siamcat.CHN_AD.fs <- evaluate.predictions(siamcat.CHN_AD.fs)
+    auroc.all <- auroc.all %>% 
+        add_row(cutoff=as.character(x), type='incorrect', 
+                study.test='CHN_AD',
+                AUC=as.numeric(siamcat.CHN_AD.fs@eval_data$auroc))
+    # apply to the external dataset and record the result
+    siamcat.JPN_AD <- siamcat(feat=JPN_AD_feat, meta=JPN_AD_meta,
+                        label='group', case='AD')
+    siamcat.JPN_AD <- make.predictions(siamcat.CHN_AD.fs, siamcat.JPN_AD)
+    siamcat.JPN_AD <- evaluate.predictions(siamcat.JPN_AD)
+    auroc.all <- auroc.all %>% 
+        add_row(cutoff=as.character(x), type='incorrect', 
+                study.test='JPN_AD', 
+                AUC=as.numeric(siamcat.JPN_AD@eval_data$auroc))
+}
+```
+
+
